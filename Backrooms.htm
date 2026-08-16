@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>The Backrooms FPS - Realistic Exit Door</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      font-family: 'Courier New', Courier, monospace;
+      user-select: none;
+    }
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #ffd700;
+      text-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+      z-index: 10;
+      pointer-events: none;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 4px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10, 10, 5, 0.92);
+      color: #e6c850;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 20;
+      cursor: pointer;
+    }
+    .vignette {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+      pointer-events: none;
+      z-index: 5;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div class="vignette"></div>
+  <div id="crosshair"></div>
+
+  <div id="hud">
+    <div style="font-size: 18px; font-weight: bold;">[ MISI: TEMUKAN PINTU KELUAR ]</div>
+    <div style="font-size: 14px; color: #fff; margin-top: 5px;">SENTER: <span id="flashlightState">ON</span></div>
+    <div style="font-size: 14px; color: #aaa; margin-top: 3px;">STAMINA: <span id="stamina">100</span>%</div>
+  </div>
+
+  <div id="overlay">
+    <h1 style="font-size: 40px; letter-spacing: 4px; text-shadow: 0 0 15px #e6c850; margin-bottom: 10px;">THE BACKROOMS</h1>
+    <p style="color: #ccc;">Level 0: Escape The Maze</p>
+    <p style="color: #888; font-size: 13px; margin-top: 20px;">Klik di layar untuk mengunci mouse & jalan</p>
+    <p style="font-size: 12px; color: #666; margin-top: 10px;">
+      [WASD] Jalan Halus | [SHIFT] Lari | [F] Senter On/Off | [MOUSE] Lihat Sekeliling
+    </p>
+  </div>
+
+  <script>
+    // 1. SCENE, CAMERA, & FOG SETUP
+    const scene = new THREE.Scene();
+    const fogColor = 0x221e10;
+    scene.background = new THREE.Color(fogColor);
+    scene.fog = new THREE.FogExp2(fogColor, 0.07);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    // 2. PEMBUAT TEKSTUR PROSEDURAL (DINDING, LANTAI, PLAFON, PINTU, PLANG EXIT)
+    function createWallTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#c4b454';
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillStyle = '#b3a343';
+      for (let x = 0; x < 256; x += 16) ctx.fillRect(x, 0, 6, 256);
+      for (let i = 0; i < 3000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#a29232' : '#d5c565';
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(2, 2);
+      return tex;
+    }
+
+    function createFloorTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#544c29';
+      ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 8000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#433b18' : '#655d3a';
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(16, 12);
+      return tex;
+    }
+
+    function createCeilingTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#d6cfab';
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.strokeStyle = '#a8a07b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, 256, 256);
+      ctx.strokeRect(0, 0, 128, 128);
+      ctx.strokeRect(128, 0, 128, 128);
+      ctx.strokeRect(0, 128, 128, 128);
+      ctx.strokeRect(128, 128, 128, 128);
+      for (let i = 0; i < 1500; i++) {
+        ctx.fillStyle = '#b5ae8a';
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(16, 12);
+      return tex;
+    }
+
+    // Tekstur Pintu Kayu Berpanel
+    function createDoorTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512; canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      // Warna Dasar Kayu
+      ctx.fillStyle = '#3b220c';
+      ctx.fillRect(0, 0, 512, 1024);
+
+      // Serat Kayu Prosedural
+      for (let i = 0; i < 6000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#271506' : '#4d2e13';
+        ctx.fillRect(Math.random() * 512, Math.random() * 1024, 2, Math.random() * 30 + 10);
+      }
+
+      // Bingkai Tepi Pintu
+      ctx.strokeStyle = '#1d0f04';
+      ctx.lineWidth = 16;
+      ctx.strokeRect(8, 8, 496, 1008);
+
+      // Fungsi Menggambar Ukiran Panel Pintu
+      function drawPanel(x, y, w, h) {
+        ctx.fillStyle = '#1c0f04'; // Bayangan Luar
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#331c09'; // Isi Panel
+        ctx.fillRect(x + 12, y + 12, w - 24, h - 24);
+        ctx.strokeStyle = '#523214'; // Highlight Terang
+        ctx.lineWidth = 4;
+        ctx.strokeRect(x + 6, y + 6, w - 12, h - 12);
+        ctx.strokeStyle = '#140a02'; // Garis Dalam
+        ctx.strokeRect(x + 12, y + 12, w - 24, h - 24);
+      }
+
+      drawPanel(45, 50, 422, 420);   // Panel Atas
+      drawPanel(45, 520, 422, 450);  // Panel Bawah
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    // Tekstur Plang "EXIT" Neon
+    function createExitSignTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#062906';
+      ctx.fillRect(0, 0, 256, 128);
+
+      ctx.strokeStyle = '#00ff44';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(6, 6, 244, 116);
+
+      ctx.fillStyle = '#00ff44';
+      ctx.font = 'bold 64px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('EXIT', 128, 64);
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    // 3. MAP LABIRIN (1 = Dinding, 0 = Lorong)
+    const mazeMap = [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,1],
+      [1,0,1,0,0,0,0,0,0,0,0,1,0,1,0,1],
+      [1,0,1,0,1,1,1,1,0,1,0,1,0,1,0,1],
+      [1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1],
+      [1,1,1,0,1,0,1,1,0,1,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,0,1,0,1],
+      [1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ];
+
+    const wallSize = 4;
+    const wallHeight = 3.5;
+
+    // Material Bertekstur
+    const wallMat = new THREE.MeshStandardMaterial({ map: createWallTexture(), roughness: 0.8 });
+    const floorMat = new THREE.MeshStandardMaterial({ map: createFloorTexture(), roughness: 0.9 });
+    const ceilMat = new THREE.MeshStandardMaterial({ map: createCeilingTexture(), roughness: 0.5 });
+
+    const mapWidth = mazeMap[0].length * wallSize;
+    const mapHeight = mazeMap.length * wallSize;
+
+    // Lantai
+    const floorGeo = new THREE.PlaneGeometry(mapWidth, mapHeight);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(mapWidth/2 - wallSize/2, 0, mapHeight/2 - wallSize/2);
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Plafon
+    const ceiling = new THREE.Mesh(floorGeo, ceilMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(mapWidth/2 - wallSize/2, wallHeight, mapHeight/2 - wallSize/2);
+    scene.add(ceiling);
+
+    // Build Walls & Invisible Lights
+    const wallGeo = new THREE.BoxGeometry(wallSize, wallHeight, wallSize);
+    const lights = [];
+
+    for (let r = 0; r < mazeMap.length; r++) {
+      for (let c = 0; c < mazeMap[r].length; c++) {
+        const x = c * wallSize;
+        const z = r * wallSize;
+
+        if (mazeMap[r][c] === 1) {
+          const wall = new THREE.Mesh(wallGeo, wallMat);
+          wall.position.set(x, wallHeight / 2, z);
+          wall.castShadow = true;
+          wall.receiveShadow = true;
+          scene.add(wall);
+        } else {
+          // Cahaya Tak Kasat Mata (Lampu Invisible)
+          if ((r + c) % 4 === 0) {
+            const pointLight = new THREE.PointLight(0xfff3a0, 0.7, 9);
+            pointLight.position.set(x, wallHeight - 0.2, z);
+            scene.add(pointLight);
+            lights.push(pointLight);
+          }
+        }
+      }
+    }
+
+    // 4. PINTU KELUAR 3D NEMPEL DI DINDING (REALISTIC EXIT DOOR)
+    const doorGroup = new THREE.Group();
+
+    // Material Kayu Pintu & Gagang Logam
+    const doorLeafMat = new THREE.MeshStandardMaterial({ map: createDoorTexture(), roughness: 0.6 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x221205, roughness: 0.7 });
+    const knobMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.2 });
+
+    // Daun Pintu
+    const doorLeafGeo = new THREE.BoxGeometry(1.6, 2.7, 0.08);
+    const doorLeaf = new THREE.Mesh(doorLeafGeo, doorLeafMat);
+    doorLeaf.position.set(0, 1.35, 0.04);
+    doorGroup.add(doorLeaf);
+
+    // Bingkai Pintu (Kiri, Kanan, Atas)
+    const frameLeft = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 0.16), frameMat);
+    frameLeft.position.set(-0.84, 1.4, 0.05);
+    doorGroup.add(frameLeft);
+
+    const frameRight = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 0.16), frameMat);
+    frameRight.position.set(0.84, 1.4, 0.05);
+    doorGroup.add(frameRight);
+
+    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 0.16), frameMat);
+    frameTop.position.set(0, 2.76, 0.05);
+    doorGroup.add(frameTop);
+
+    // Gagang Pintu Logam (Doorknob)
+    const knobBase = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 12), knobMat);
+    knobBase.rotation.x = Math.PI / 2;
+    knobBase.position.set(0.6, 1.2, 0.1);
+    doorGroup.add(knobBase);
+
+    const knobBall = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), knobMat);
+    knobBall.position.set(0.6, 1.2, 0.14);
+    doorGroup.add(knobBall);
+
+    // Plang EXIT Neon Menyala di Atas Bingkai Pintu
+    const exitSignMat = new THREE.MeshBasicMaterial({ map: createExitSignTexture() });
+    const exitSignMesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 0.12), exitSignMat);
+    exitSignMesh.position.set(0, 3.05, 0.08);
+    doorGroup.add(exitSignMesh);
+
+    // Cahaya Hijau Lampu EXIT
+    const exitLight = new THREE.PointLight(0x00ff44, 1.8, 7);
+    exitLight.position.set(0, 2.9, 0.3);
+    doorGroup.add(exitLight);
+
+    // NEMPELKAN PINTU SECARA PRESISI PADA PERMUKAAN DINDING KANAN (r:9, c:15)
+    const targetWallX = 15 * wallSize - wallSize / 2 + 0.02; // Menempel di permukaan dinding
+    const targetWallZ = 9 * wallSize;
+    doorGroup.position.set(targetWallX, 0, targetWallZ);
+    doorGroup.rotation.y = -Math.PI / 2; // Menghadap ke lorong pemain
+
+    scene.add(doorGroup);
+
+    // 5. PLAYER SETUP & SAFE SPAWN
+    const player = {
+      height: 1.6,
+      speed: 0.07,
+      sprintSpeed: 0.13,
+      stamina: 100,
+      position: new THREE.Vector3(wallSize, 1.6, wallSize),
+      rotation: new THREE.Euler(0, 0, 0, 'YXZ')
+    };
+
+    for (let r = 0; r < mazeMap.length; r++) {
+      let found = false;
+      for (let c = 0; c < mazeMap[r].length; c++) {
+        if (mazeMap[r][c] === 0) {
+          player.position.set(c * wallSize, 1.6, r * wallSize);
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+
+    camera.position.copy(player.position);
+
+    // Senter Player
+    const flashlight = new THREE.SpotLight(0xfffae0, 2.2, 22, Math.PI / 5, 0.4, 1);
+    scene.add(flashlight);
+    scene.add(flashlight.target);
+
+    const ambientLight = new THREE.AmbientLight(0x38321a, 0.4);
+    scene.add(ambientLight);
+
+    // 6. COLLISION DETECTION
+    function isCollidingAt(px, pz) {
+      const radius = 0.35;
+      for (let r = 0; r < mazeMap.length; r++) {
+        for (let c = 0; c < mazeMap[r].length; c++) {
+          if (mazeMap[r][c] === 1) {
+            const minX = c * wallSize - wallSize / 2;
+            const maxX = c * wallSize + wallSize / 2;
+            const minZ = r * wallSize - wallSize / 2;
+            const maxZ = r * wallSize + wallSize / 2;
+
+            const closestX = Math.max(minX, Math.min(px, maxX));
+            const closestZ = Math.max(minZ, Math.min(pz, maxZ));
+
+            const dx = px - closestX;
+            const dz = pz - closestZ;
+
+            if ((dx * dx + dz * dz) < (radius * radius)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    // 7. CONTROLS
+    const keys = {};
+    let isLocked = false;
+    let flashlightOn = true;
+    let isWin = false;
+    const overlay = document.getElementById('overlay');
+
+    overlay.addEventListener('click', () => { 
+      if (!isWin) document.body.requestPointerLock(); 
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === document.body) {
+        isLocked = true;
+        overlay.style.display = 'none';
+      } else {
+        isLocked = false;
+        if (!isWin) overlay.style.display = 'flex';
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isLocked) return;
+      const sensitivity = 0.0022;
+      player.rotation.y -= e.movementX * sensitivity;
+      player.rotation.x -= e.movementY * sensitivity;
+      player.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, player.rotation.x));
+    });
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.key.toLowerCase() === 'f') {
+        flashlightOn = !flashlightOn;
+        flashlight.visible = flashlightOn;
+        document.getElementById('flashlightState').innerText = flashlightOn ? "ON" : "OFF";
+      }
+    });
+    window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+    function triggerWin() {
+      isWin = true;
+      document.exitPointerLock();
+      overlay.innerHTML = `
+        <h1 style="font-size: 46px; color: #00ff00; text-shadow: 0 0 20px #00ff00;">KAMU BERHASIL KELUAR!</h1>
+        <p style="color: #ccc;">Selamat! Kamu berhasil menemukan pintu keluar dari Backrooms.</p>
+        <button onclick="location.reload()" style="margin-top:20px; padding: 12px 24px; font-family: monospace; background: #00ff00; color: #000; font-weight:bold; border: none; cursor: pointer;">MAIN LAGI</button>
+      `;
+      overlay.style.display = 'flex';
+    }
+
+    // 8. MAIN GAME LOOP
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (isLocked && !isWin) {
+        // Kerlipan lampu tak kasat mata
+        lights.forEach(l => {
+          if (Math.random() < 0.02) l.intensity = Math.random() < 0.5 ? 0.1 : 0.7;
+        });
+
+        let moveSpeed = player.speed;
+        if (keys['shift'] && player.stamina > 0 && (keys['w'] || keys['s'] || keys['a'] || keys['d'])) {
+          moveSpeed = player.sprintSpeed;
+          player.stamina = Math.max(0, player.stamina - 0.35);
+        } else {
+          player.stamina = Math.min(100, player.stamina + 0.2);
+        }
+        document.getElementById('stamina').innerText = Math.floor(player.stamina);
+
+        const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
+        const side = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
+        const move = new THREE.Vector3(0, 0, 0);
+
+        if (keys['w']) move.add(forward);
+        if (keys['s']) move.sub(forward);
+        if (keys['a']) move.sub(side);
+        if (keys['d']) move.add(side);
+
+        if (move.length() > 0) {
+          move.normalize().multiplyScalar(moveSpeed);
+
+          if (!isCollidingAt(player.position.x + move.x, player.position.z)) {
+            player.position.x += move.x;
+          }
+          if (!isCollidingAt(player.position.x, player.position.z + move.z)) {
+            player.position.z += move.z;
+          }
+        }
+
+        camera.position.copy(player.position);
+        camera.rotation.copy(player.rotation);
+
+        flashlight.position.copy(camera.position);
+        const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+        flashlight.target.position.copy(camera.position).add(dir);
+
+        // Deteksi mendekati pintu keluar
+        const distToExit = player.position.distanceTo(doorGroup.position);
+        if (distToExit < 1.8) {
+          triggerWin();
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
